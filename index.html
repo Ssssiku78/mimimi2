@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Minecraft-like Game with Flying and Trees</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #inventory {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 5px;
+        }
+        .slot {
+            width: 40px;
+            height: 40px;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .selected {
+            border: 2px solid #ffd700;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            background-color: transparent;
+            border: 1px solid white;
+        }
+    </style>
+</head>
+<body>
+    <div id="inventory"></div>
+    <div id="crosshair"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const light = new THREE.DirectionalLight(0xffffff, 0.8);
+        light.position.set(50, 100, 50);
+        light.castShadow = true;
+        light.shadow.mapSize.width = 2048;
+        light.shadow.mapSize.height = 2048;
+        light.shadow.camera.near = 1;
+        light.shadow.camera.far = 500;
+        light.shadow.camera.left = -100;
+        light.shadow.camera.right = 100;
+        light.shadow.camera.top = 100;
+        light.shadow.camera.bottom = -100;
+        scene.add(light);
+
+        const blockColors = [
+            0x8B4513, // Земля
+            0x228B22, // Трава
+            0x808080, // Камень
+            0x4169E1, // Вода
+            0x8B4513, // Дерево (ствол)
+            0xFF0000, // Красный
+            0x00FF00, // Зеленый
+            0x0000FF, // Синий
+            0xFFFF00, // Желтый
+            0xFF00FF  // Пурпурный
+        ];
+
+        const blockTypes = blockColors.map(color => new THREE.MeshPhongMaterial({ color: color }));
+
+        const chunkSize = 16;
+        const worldSize = 8;
+        const loadedChunks = new Map();
+        const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+        // Создание инвентаря
+        const inventory = document.getElementById('inventory');
+        blockColors.forEach((color, index) => {
+            const slot = document.createElement('div');
+            slot.className = 'slot';
+            slot.textContent = index + 1;
+            slot.style.backgroundColor = '#' + color.toString(16).padStart(6, '0');
+            slot.dataset.block = index;
+            if (index === 0) slot.classList.add('selected');
+            inventory.appendChild(slot);
+        });
+
+        function generateTree(x, y, z) {
+            const treeHeight = Math.floor(Math.random() * 3) + 4;
+
+            for (let i = 0; i < treeHeight; i++) {
+                const trunk = new THREE.Mesh(blockGeometry, blockTypes[4]);
+                trunk.position.set(x, y + i, z);
+                trunk.castShadow = true;
+                trunk.receiveShadow = true;
+                scene.add(trunk);
+                trunk.userData.isSolid = true;
+            }
+
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dz = -2; dz <= 2; dz++) {
+                    for (let dy = 0; dy <= 2; dy++) {
+                        if (Math.abs(dx) + Math.abs(dz) + Math.abs(dy) <= 3) {
+                            const leaf = new THREE.Mesh(blockGeometry, blockTypes[1]);
+                            leaf.position.set(x + dx, y + treeHeight + dy - 1, z + dz);
+                            leaf.castShadow = true;
+                            leaf.receiveShadow = true;
+                            scene.add(leaf);
+                            leaf.userData.isSolid = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        function generateChunk(xChunk, zChunk) {
+            const chunkKey = `${xChunk},${zChunk}`;
+            if (loadedChunks.has(chunkKey)) return;
+
+            const chunkGroup = new THREE.Group();
+            for (let x = xChunk * chunkSize; x < (xChunk + 1) * chunkSize; x++) {
+                for (let z = zChunk * chunkSize; z < (zChunk + 1) * chunkSize; z++) {
+                    const block = new THREE.Mesh(blockGeometry, blockTypes[1]);
+                    block.position.set(x, 0, z);
+                    block.receiveShadow = true;
+                    chunkGroup.add(block);
+                    block.userData.isSolid = true;
+                }
+            }
+            scene.add(chunkGroup);
+            loadedChunks.set(chunkKey, chunkGroup);
+        }
+
+        for (let x = -worldSize; x <= worldSize; x++) {
+            for (let z = -worldSize; z <= worldSize; z++) {
+                generateChunk(x, z);
+            }
+        }
+
+        for (let i = 0; i < 7; i++) {
+            const x = Math.floor(Math.random() * (worldSize * 2 * chunkSize)) - (worldSize * chunkSize);
+            const z = Math.floor(Math.random() * (worldSize * 2 * chunkSize)) - (worldSize * chunkSize);
+            generateTree(x, 1, z);
+        }
+
+        camera.position.set(0, 10, 0);
+
+        let selectedBlockType = 0;
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        inventory.addEventListener('click', (event) => {
+            if (event.target.classList.contains('slot')) {
+                document.querySelector('.selected').classList.remove('selected');
+                event.target.classList.add('selected');
+                selectedBlockType = parseInt(event.target.dataset.block);
+            }
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key >= '1' && event.key <= '0') {
+                const index = event.key === '0' ? 9 : parseInt(event.key) - 1;
+                document.querySelector('.selected').classList.remove('selected');
+                inventory.children[index].classList.add('selected');
+                selectedBlockType = index;
+            }
+        });
+
+        document.addEventListener('mousedown', (event) => {
+            mouse.x = 0;
+            mouse.y = 0;
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            if (intersects.length > 0) {
+                const intersectedObject = intersects[0].object;
+
+                if (event.button === 0) {
+                    scene.remove(intersectedObject);
+                } else if (event.button === 2) {
+                    const normal = intersects[0].face.normal;
+                    const newPosition = intersectedObject.position.clone().add(normal);
+
+                    const newBlock = new THREE.Mesh(blockGeometry, blockTypes[selectedBlockType]);
+                    newBlock.position.copy(newPosition);
+                    newBlock.castShadow = true;
+                    newBlock.receiveShadow = true;
+                    scene.add(newBlock);
+                    newBlock.userData.isSolid = true;
+                }
+            }
+        });
+
+        const moveSpeed = 10;
+        const moveVector = new THREE.Vector3();
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let moveUp = false;
+        let moveDown = false;
+
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+
+        // Оновлена логіка вибору слотів
+document.addEventListener('keydown', (event) => {
+    if (event.key >= '0' && event.key <= '9') {
+        const index = event.key === '0' ? 9 : parseInt(event.key) - 1;
+        document.querySelector('.selected').classList.remove('selected');
+        inventory.children[index].classList.add('selected');
+        selectedBlockType = index;
+    }
+});
+
+// Оновлена функція onKeyDown
+function onKeyDown(event) {
+    switch (event.code) {
+        case 'KeyW': moveForward = true; break;
+        case 'KeyS': moveBackward = true; break;
+        case 'KeyA': moveLeft = true; break;
+        case 'KeyD': moveRight = true; break;
+        case 'Space': moveUp = true; break;
+        case 'ShiftLeft': moveDown = true; break;
+        // Додаємо обробку цифрових клавіш
+        case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
+        case 'Digit6': case 'Digit7': case 'Digit8': case 'Digit9': case 'Digit0':
+            const index = event.code === 'Digit0' ? 9 : parseInt(event.code.slice(-1)) - 1;
+            document.querySelector('.selected').classList.remove('selected');
+            inventory.children[index].classList.add('selected');
+            selectedBlockType = index;
+            break;
+    }
+}
+
+        function onKeyDown(event) {
+            switch (event.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space': moveUp = true; break;
+                case 'ShiftLeft': moveDown = true; break;
+            }
+        }
+
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+                case 'Space': moveUp = false; break;
+                case 'ShiftLeft': moveDown = false; break;
+            }
+        }
+
+        let pitch = 0;
+        let yaw = 0;
+
+        document.addEventListener('mousemove', (event) => {
+            if (document.pointerLockElement === document.body) {
+                yaw -= event.movementX * 0.002;
+                pitch -= event.movementY * 0.002;
+                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+
+                camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+            }
+        });
+
+        document.body.addEventListener('click', () => {
+            document.body.requestPointerLock();
+        });
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const deltaTime = Math.min(clock.getDelta(), 0.1);
+
+            moveVector.set(0, 0, 0);
+            if (moveForward) moveVector.z -= 1;
+            if (moveBackward) moveVector.z += 1;
+            if (moveLeft) moveVector.x -= 1;
+            if (moveRight) moveVector.x += 1;
+            if (moveUp) moveVector.y += 1;
+            if (moveDown) moveVector.y -= 1;
+            moveVector.normalize().multiplyScalar(moveSpeed * deltaTime);
+
+            const cameraDirection = new THREE.Vector3();
+            camera.getWorldDirection(cameraDirection);
+            const sideways = new THREE.Vector3(-cameraDirection.z, 0, cameraDirection.x);
+
+            camera.position.addScaledVector(sideways, moveVector.x);
+            camera.position.addScaledVector(cameraDirection, -moveVector.z);
+            camera.position.y += moveVector.y;
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener('resize', onWindowResize, false);
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
